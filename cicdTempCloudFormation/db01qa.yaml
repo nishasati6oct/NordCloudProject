@@ -1,0 +1,91 @@
+Parameters:
+  appStackName:
+    Description: Name of the base stack with all infra resources
+    Type: String
+    Default: app01qa
+  MyIP:
+    Type: String
+  KeyName:
+    Type: String
+  InstanceType:
+    Type: String
+    Default: t2.micro
+
+Mappings:
+  AmiRegionMap:
+    us-east-1:
+      AMI: ami-052efd3df9dad4825
+    us-east-2:
+      AMI: ami-02f3416038bdb17fb
+
+Resources:
+  DB01qaInst:
+    Type: 'AWS::EC2::Instance'
+    Properties:
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      ImageId: !FindInMap
+        - AmiRegionMap
+        - !Ref AWS::Region
+        - AMI
+      Tags:
+        - Key: "Name"
+          Value: !Join
+            - ""
+            - - "db01-qa-ncloud in "
+              - !Ref AWS::Region
+      SecurityGroups:
+        - !Ref nclouddbSG
+      UserData:
+        Fn::Base64:
+          !Sub |
+          #!/bin/bash
+          DATABASE_PASS='admin123'
+          yum update -y
+          yum install epel-release -y
+          yum install mariadb-server -y
+          yum install wget git unzip -y
+          
+          #mysql_secure_installation
+          sed -i 's/^127.0.0.1/0.0.0.0/' /etc/my.cnf
+          
+          # starting & enabling mariadb-server
+          systemctl start mariadb
+          systemctl enable mariadb
+          
+          #get the schema file for the application
+          cd /tmp/
+          wget https://raw.githubusercontent.com/devopshydclub/ncloud-repo/ncloud/schema.sql
+          mysqladmin -u root password "$DATABASE_PASS"
+          mysql -u root -p"$DATABASE_PASS" -e "UPDATE mysql.user SET Password=PASSWORD('$DATABASE_PASS') WHERE User='root'"
+          mysql -u root -p"$DATABASE_PASS" -e "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1')"
+          mysql -u root -p"$DATABASE_PASS" -e "DELETE FROM mysql.user WHERE User=''"
+          mysql -u root -p"$DATABASE_PASS" -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\_%'"
+          mysql -u root -p"$DATABASE_PASS" -e "FLUSH PRIVILEGES"
+          mysql -u root -p"$DATABASE_PASS" -e "create database accounts"
+          mysql -u root -p"$DATABASE_PASS" -e "grant all privileges on accounts.* TO 'admin'@'localhost' identified by 'admin123'"
+          mysql -u root -p"$DATABASE_PASS" -e "grant all privileges on accounts.* TO 'admin'@'%' identified by 'admin123'"
+          mysql -u root -p"$DATABASE_PASS" accounts < /tmp/db_backup.sql
+          mysql -u root -p"$DATABASE_PASS" -e "FLUSH PRIVILEGES"
+
+  nclouddbSG:
+    Type: 'AWS::EC2::SecurityGroup'
+    Properties:
+      GroupName: nclouddbSG
+      GroupDescription: Allow SSH & HTTP from myip
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: '22'
+          ToPort: '22'
+          CidrIp: !Ref MyIP
+  nclouddbSGIngress:
+    Type: 'AWS::EC2::SecurityGroupIngress'
+    Properties:
+      GroupId:
+        Fn::GetAtt:
+          - nclouddbSG
+          - GroupId
+      IpProtocol: -1
+      SourceSecurityGroupId:
+        Fn::ImportValue:
+          Fn::Sub: "${appStackName}-SGID"

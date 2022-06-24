@@ -1,0 +1,39 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  ncloudS3Role:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      RoleName: ncloud-cicd-data-s3
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: /
+      Policies:
+        - PolicyName: nclouds3fullaccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: '*'
+                Resource: 'arn:aws:s3:::*'
+
+  ncloudInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      InstanceProfileName: ncloud-cicd-data-s3
+      Path: /
+      Roles:
+        - !Ref ncloudS3Role
+        -
+Outputs:
+  nclouds3rolDetails:
+    Description: ncloud CICD Pro s3 role info
+    Value: !Ref ncloudInstanceProfile
+    Export:
+      Name: cicds3role-ncloudS3RoleProfileName
